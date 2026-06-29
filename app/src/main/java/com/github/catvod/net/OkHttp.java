@@ -16,6 +16,7 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 
+import okhttp3.Call;
 import okhttp3.Dns;
 import okhttp3.Headers;
 import okhttp3.OkHttpClient;
@@ -23,6 +24,8 @@ import okhttp3.Request;
 import okhttp3.Response;
 
 public class OkHttp {
+
+    private static final long TIMEOUT = TimeUnit.SECONDS.toMillis(15);
 
     public static final String POST = "POST";
     public static final String GET = "GET";
@@ -37,20 +40,20 @@ public class OkHttp {
         return Loader.INSTANCE;
     }
 
-    public static Response newCall(Request request) throws IOException {
-        return client().newCall(request).execute();
+    public static Response newCall(String url, String tag) throws IOException {
+        return client().newCall(new Request.Builder().url(url).tag(tag).build()).execute();
     }
 
-    public static Response newCall(String url) throws IOException {
-        return client().newCall(new Request.Builder().url(url).build()).execute();
-    }
-
-    public static Response newCall(String url, Map<String, String> header) throws IOException {
-        return client().newCall(new Request.Builder().url(url).headers(Headers.of(header)).build()).execute();
+    public static Response newCall(OkHttpClient client, String url, String tag) throws IOException {
+        return client.newCall(new Request.Builder().url(url).tag(tag).build()).execute();
     }
 
     public static String string(String url) {
         return string(url, null);
+    }
+
+    public static String string(String url, long timeout) {
+        return string(url, null, null, timeout);
     }
 
     public static String string(String url, Map<String, String> header) {
@@ -58,7 +61,11 @@ public class OkHttp {
     }
 
     public static String string(String url, Map<String, String> params, Map<String, String> header) {
-        return url.startsWith("http") ? new OkRequest(GET, url, params, header).execute(client()).getBody() : "";
+        return new OkRequest(GET, url, params, header).execute(client()).getBody();
+    }
+
+    public static String string(String url, Map<String, String> params, Map<String, String> header, long timeout) {
+        return new OkRequest(GET, url, params, header).execute(client(timeout)).getBody();
     }
 
     public static String post(String url, Map<String, String> params) {
@@ -88,13 +95,34 @@ public class OkHttp {
         return null;
     }
 
+    public static void cancel(String tag) {
+        cancel(client(), tag);
+    }
+
+    public static void cancel(OkHttpClient client, String tag) {
+        for (Call call : client.dispatcher().queuedCalls()) if (tag.equals(call.request().tag())) call.cancel();
+        for (Call call : client.dispatcher().runningCalls()) if (tag.equals(call.request().tag())) call.cancel();
+    }
+
+    public static void cancelAll() {
+        cancelAll(client());
+    }
+
+    public static void cancelAll(OkHttpClient client) {
+        client.dispatcher().cancelAll();
+    }
+
     private static OkHttpClient build() {
         if (get().client != null) return get().client;
         return get().client = getBuilder().build();
     }
 
     private static OkHttpClient.Builder getBuilder() {
-        return new OkHttpClient.Builder().dns(safeDns()).connectTimeout(30, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS).writeTimeout(30, TimeUnit.SECONDS).hostnameVerifier((hostname, session) -> true).sslSocketFactory(getSSLContext().getSocketFactory(), trustAllCertificates());
+        return new OkHttpClient.Builder().dns(safeDns()).connectTimeout(TIMEOUT, TimeUnit.MILLISECONDS).readTimeout(TIMEOUT, TimeUnit.MILLISECONDS).writeTimeout(TIMEOUT, TimeUnit.MILLISECONDS).hostnameVerifier((hostname, session) -> true).sslSocketFactory(getSSLContext().getSocketFactory(), trustAllCertificates());
+    }
+
+    public static OkHttpClient client(long timeout) {
+        return client().newBuilder().connectTimeout(timeout, TimeUnit.MILLISECONDS).readTimeout(timeout, TimeUnit.MILLISECONDS).writeTimeout(timeout, TimeUnit.MILLISECONDS).build();
     }
 
     private static OkHttpClient client() {

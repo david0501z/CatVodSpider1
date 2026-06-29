@@ -54,14 +54,24 @@ public class Market extends Spider {
     public String action(String action) {
         try {
             OkHttp.cancel(TAG);
-            String name = Uri.parse(action).getLastPathSegment();
-            Notify.show("正在下載..." + name);
             Response response = OkHttp.newCall(action, TAG, TimeUnit.MINUTES.toMillis(5));
+
+            // 获取重定向后的真实文件名（绕过代理 URL）
+            String name = "download";
+            try {
+                List<String> segments = response.request().url().pathSegments();
+                if (!segments.isEmpty()) {
+                    String last = segments.get(segments.size() - 1);
+                    if (last.contains(".")) name = Uri.decode(last);
+                }
+            } catch (Exception ignored) {}
+
+            Notify.show("正在下載..." + name);
             File file = Path.create(new File(Path.download(), name));
             download(file, response.body().byteStream());
             if (file.getName().endsWith(".zip")) {
-              FileUtil.unzip(file, Path.download());
-              file.delete();
+                FileUtil.unzip(file, Path.download());
+                file.delete();
             }
             if (file.getName().endsWith(".apk")) FileUtil.openFile(file);
             checkCopy(action);

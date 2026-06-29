@@ -42,6 +42,8 @@ public class FileUtil {
     }
 
     private static String getMimeType(String fileName) {
+        if (fileName.endsWith(".apk")) return "application/vnd.android.package-archive";
+        if (fileName.endsWith(".jar")) return "application/java-archive";
         String mimeType = URLConnection.guessContentTypeFromName(fileName);
         return TextUtils.isEmpty(mimeType) ? "*/*" : mimeType;
     }

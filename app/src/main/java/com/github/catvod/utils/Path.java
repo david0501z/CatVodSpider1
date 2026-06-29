@@ -43,6 +43,14 @@ public class Path {
         return new File(tv(), name);
     }
 
+    public static File tvpg() {
+        return mkdir(new File(root() + File.separator + "TVBox" + File.separator + "pg"));
+    }
+
+    public static File tvZX() {
+        return mkdir(new File(root() + File.separator + "TVBox" + File.separator + "ZX"));
+    }
+
     public static String read(File file) {
         try {
             return new String(readToByte(file), StandardCharsets.UTF_8);

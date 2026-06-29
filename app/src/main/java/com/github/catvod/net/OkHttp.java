@@ -40,12 +40,12 @@ public class OkHttp {
         return Loader.INSTANCE;
     }
 
-    public static Response newCall(String url) throws IOException {
-        return client().newCall(new Request.Builder().url(url).build()).execute();
+    public static Response newCall(String url, String tag) throws IOException {
+        return client().newCall(new Request.Builder().url(url).tag(tag).build()).execute();
     }
 
-    public static Response newCall(OkHttpClient client, String url, String tag) throws IOException {
-        return client.newCall(new Request.Builder().url(url).tag(tag).build()).execute();
+    public static Response newCall(String url, String tag, long timeoutMillis) throws IOException {
+        return client(timeoutMillis).newCall(new Request.Builder().url(url).tag(tag).build()).execute();
     }
 
     public static String string(String url) {
@@ -121,7 +121,7 @@ public class OkHttp {
         return new OkHttpClient.Builder().dns(safeDns()).connectTimeout(TIMEOUT, TimeUnit.MILLISECONDS).readTimeout(TIMEOUT, TimeUnit.MILLISECONDS).writeTimeout(TIMEOUT, TimeUnit.MILLISECONDS).hostnameVerifier((hostname, session) -> true).sslSocketFactory(getSSLContext().getSocketFactory(), trustAllCertificates());
     }
 
-    public static OkHttpClient client(long timeout) {
+    private static OkHttpClient client(long timeout) {
         return client().newBuilder().connectTimeout(timeout, TimeUnit.MILLISECONDS).readTimeout(timeout, TimeUnit.MILLISECONDS).writeTimeout(timeout, TimeUnit.MILLISECONDS).build();
     }
 

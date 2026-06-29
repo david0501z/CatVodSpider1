@@ -16,7 +16,6 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 
-import okhttp3.Call;
 import okhttp3.Dns;
 import okhttp3.Headers;
 import okhttp3.OkHttpClient;
@@ -40,8 +39,8 @@ public class OkHttp {
         return Loader.INSTANCE;
     }
 
-    public static Response newCall(String url, String tag) throws IOException {
-        return client().newCall(new Request.Builder().url(url).tag(tag).build()).execute();
+    public static Response newCall(String url) throws IOException {
+        return client().newCall(new Request.Builder().url(url).build()).execute();
     }
 
     public static Response newCall(OkHttpClient client, String url, String tag) throws IOException {

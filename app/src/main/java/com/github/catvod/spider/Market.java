@@ -63,7 +63,7 @@ public class Market extends Spider {
         try {
             if (isBusy()) return "";
             setBusy(true);
-            Init.run(this::setDialog, 500);
+            Init.post(this::setDialog, 500);
             Response response = OkHttp.newCall(action);
             File file = Path.create(new File(Path.download(), Uri.parse(action).getLastPathSegment()));
             download(file, response.body().byteStream(), Double.parseDouble(response.header("Content-Length", "1")));

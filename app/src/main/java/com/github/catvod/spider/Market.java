@@ -55,7 +55,7 @@ public class Market extends Spider {
             OkHttp.cancel(TAG);
             String name = Uri.parse(action).getLastPathSegment();
             Notify.show("正在下載..." + name);
-            Response response = OkHttp.newCall(action, TAG);
+            Response response = OkHttp.newCall(OkHttp.client(120000), action, TAG);
             File file = Path.create(new File(Path.download(), name));
             download(file, response.body().byteStream());
             if (file.getName().endsWith(".zip")) FileUtil.unzip(file, Path.download());

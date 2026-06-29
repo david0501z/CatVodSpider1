@@ -114,9 +114,9 @@ public class Market extends Spider {
     }
 
     private void setDialog() {
-        Init.run(() -> {
+        Init.post(() -> {
             try {
-                dialog = new ProgressDialog(Init.getActivity());
+                dialog = new ProgressDialog(Init.context());
                 dialog.setProgressStyle(ProgressDialog.STYLE_HORIZONTAL);
                 dialog.setCancelable(false);
                 if (isBusy()) dialog.show();
@@ -127,7 +127,7 @@ public class Market extends Spider {
     }
 
     private void dismiss() {
-        Init.run(() -> {
+        Init.post(() -> {
             try {
                 setBusy(false);
                 if (dialog != null) dialog.dismiss();
@@ -138,7 +138,7 @@ public class Market extends Spider {
     }
 
     private void setProgress(int value) {
-        Init.run(() -> {
+        Init.post(() -> {
             try {
                 if (dialog != null) dialog.setProgress(value);
             } catch (Exception e) {

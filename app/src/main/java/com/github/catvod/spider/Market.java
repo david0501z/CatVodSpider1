@@ -1,6 +1,5 @@
 package com.github.catvod.spider;
 
-import android.app.ProgressDialog;
 import android.content.Context;
 import android.net.Uri;
 
@@ -10,34 +9,27 @@ import com.github.catvod.bean.market.Data;
 import com.github.catvod.bean.market.Item;
 import com.github.catvod.crawler.Spider;
 import com.github.catvod.net.OkHttp;
-import com.github.catvod.spider.Init;
 import com.github.catvod.utils.FileUtil;
+import com.github.catvod.utils.Notify;
 import com.github.catvod.utils.Path;
 import com.github.catvod.utils.Util;
 
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import okhttp3.Response;
 
 public class Market extends Spider {
 
-    private ProgressDialog dialog;
+    private static final String TAG = Market.class.getSimpleName();
     private List<Data> datas;
-    private boolean busy;
-
-    public boolean isBusy() {
-        return busy;
-    }
-
-    public void setBusy(boolean busy) {
-        this.busy = busy;
-    }
 
     @Override
     public void init(Context context, String extend) {
@@ -61,44 +53,28 @@ public class Market extends Spider {
     @Override
     public String action(String action) {
         try {
-            if (isBusy()) return "";
-            setBusy(true);
-            Init.post(this::setDialog, 500);
-            Response response = OkHttp.newCall(action);
-            File file = Path.create(new File(Path.download(), Uri.parse(action).getLastPathSegment()));
-            download(file, response.body().byteStream(), Double.parseDouble(response.header("Content-Length", "1")));
-            if (file.getName().endsWith(".zip"))
-            {
-                if(file.getName().startsWith("pg")) 
-                    FileUtil.unzip(file, Path.tvpg());
-                else if (file.getName().startsWith("z"))
-                    FileUtil.unzip(file, Path.tvZX());
-                else if (file.getName().startsWith("TV"))
-                    FileUtil.unzip(file, Path.root());
-                else  
-                    FileUtil.unzip(file, Path.download());
-                file.delete();
-            }
-            else if (file.getName().endsWith(".apk")) FileUtil.openFile(file);
+            OkHttp.cancel(TAG);
+            String name = Uri.parse(action).getLastPathSegment();
+            Notify.show("正在下載..." + name);
+            Response response = OkHttp.newCall(action, TAG, TimeUnit.MINUTES.toMillis(5));
+            File file = Path.create(new File(Path.download(), name));
+            download(file, response.body().byteStream());
+            if (file.getName().endsWith(".zip")) FileUtil.unzip(file, Path.download());
+            if (file.getName().endsWith(".apk")) FileUtil.openFile(file);
             checkCopy(action);
-            dismiss();
-            return "";
+            response.close();
+            return Result.notify("下載完成");
         } catch (Exception e) {
-            dismiss();
             return Result.notify(e.getMessage());
         }
     }
 
-    private void download(File file, InputStream is, double length) throws Exception {
-        FileOutputStream os = new FileOutputStream(file);
-        try (BufferedInputStream input = new BufferedInputStream(is)) {
-            byte[] buffer = new byte[4096];
+    private void download(File file, InputStream is) throws IOException {
+        try (BufferedInputStream input = new BufferedInputStream(is); FileOutputStream os = new FileOutputStream(file)) {
+            byte[] buffer = new byte[16384];
             int readBytes;
-            long totalBytes = 0;
             while ((readBytes = input.read(buffer)) != -1) {
-                totalBytes += readBytes;
                 os.write(buffer, 0, readBytes);
-                setProgress((int) (totalBytes / length * 100.0));
             }
         }
     }
@@ -113,37 +89,8 @@ public class Market extends Spider {
         }
     }
 
-    private void setDialog() {
-        Init.post(() -> {
-            try {
-                dialog = new ProgressDialog(Init.getActivity());
-                dialog.setProgressStyle(ProgressDialog.STYLE_HORIZONTAL);
-                dialog.setCancelable(false);
-                if (isBusy()) dialog.show();
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        });
-    }
-
-    private void dismiss() {
-        Init.post(() -> {
-            try {
-                setBusy(false);
-                if (dialog != null) dialog.dismiss();
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        });
-    }
-
-    private void setProgress(int value) {
-        Init.post(() -> {
-            try {
-                if (dialog != null) dialog.setProgress(value);
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        });
+    @Override
+    public void destroy() {
+        OkHttp.cancel(TAG);
     }
 }

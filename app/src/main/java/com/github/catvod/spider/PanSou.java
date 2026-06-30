@@ -28,7 +28,6 @@ import java.util.Map;
  */
 public class PanSou extends Spider {
 
-    // 默认 pansou API 地址 — 跟 douban.html 的 panApi("/api/search") 一致
     private static final String DEFAULT_API = "http://david525:8888";
     private String apiBase = DEFAULT_API;
     private Context context;
@@ -43,7 +42,6 @@ public class PanSou extends Spider {
     @Override
     public void init(Context context, String extend) {
         this.context = context;
-        // ext 可自定义 API 地址，格式: http://ip:port
         if (!TextUtils.isEmpty(extend)) {
             apiBase = extend.trim();
         }
@@ -64,34 +62,26 @@ public class PanSou extends Spider {
     // ==================== 搜索 ====================
 
     @Override
-    public String searchContent(String keyword, boolean quick) throws Exception {
-        return searchContent(keyword);
-    }
+    public String searchContent(String key, boolean quick) throws Exception {
+        if (TextUtils.isEmpty(key)) return "";
 
-    @Override
-    public String searchContent(String keyword) throws Exception {
         // 跟 douban.html 的 panSearchPayload() 一致
         JSONObject body = new JSONObject();
-        body.put("kw", keyword);
+        body.put("kw", key);
         body.put("res", "merge");
         body.put("src", "all");
 
-        // 可选: 指定网盘类型（不指定则搜全部）
-        // body.put("cloud_types", new JSONArray());
-
         String apiUrl = apiBase + "/api/search";
-        if (!apiBase.endsWith("/")) apiUrl = apiBase + "/api/search";
-        if (apiBase.contains("/api")) apiUrl = apiBase + "/search"; // 兼容 apiBase 已是 /api 路径
+        if (apiBase.contains("/api")) apiUrl = apiBase + "/search";
 
         String resp;
         try {
-            SpiderDebug.log("PanSou search: " + apiUrl + " kw=" + keyword);
+            SpiderDebug.log("PanSou search: " + apiUrl + " kw=" + key);
             resp = OkHttp.post(apiUrl, body.toString(), getHeaders()).getBody();
         } catch (Exception e) {
-            SpiderDebug.log("PanSou search failed: " + e.getMessage());
-            // 兜底：尝试 GET 方式
+            SpiderDebug.log("PanSou search POST failed: " + e.getMessage());
             try {
-                String getUrl = apiUrl + "?kw=" + URLEncoder.encode(keyword, "UTF-8") + "&res=merge";
+                String getUrl = apiUrl + "?kw=" + URLEncoder.encode(key, "UTF-8") + "&res=merge";
                 resp = OkHttp.string(getUrl, getHeaders());
             } catch (Exception e2) {
                 return Result.string(new ArrayList<>());
@@ -104,20 +94,17 @@ public class PanSou extends Spider {
 
         JSONObject json = new JSONObject(resp);
 
-        // douban.html 用 body.data || body
+        // douban.html: body.data || body
         JSONObject data = json.optJSONObject("data");
         if (data == null) data = json;
 
         JSONObject merged = data.optJSONObject("merged_by_type");
-        if (merged == null) {
-            // 兼容老格式
-            merged = json.optJSONObject("merged_by_type");
-        }
+        if (merged == null) merged = json.optJSONObject("merged_by_type");
         if (merged == null) return Result.string(new ArrayList<>());
 
         List<Vod> list = new ArrayList<>();
 
-        // 遍历所有网盘类型（按顺序优先显示 quark/aliyun/123）
+        // 按顺序优先显示常用网盘
         String[] preferredTypes = {"quark", "aliyun", "123", "baidu", "115", "uc", "tianyi", "pikpak", "xunlei", "others"};
         for (String type : preferredTypes) {
             JSONArray links = merged.optJSONArray(type);
@@ -133,8 +120,8 @@ public class PanSou extends Spider {
                 if (TextUtils.isEmpty(url)) continue;
 
                 Vod vod = new Vod();
-                vod.setVodId(url); // vod_id = 分享链接 → CloudDrive 直接解析
-                vod.setVodName(!TextUtils.isEmpty(note) ? note : keyword);
+                vod.setVodId(url); // vod_id = 分享链接 → CloudDrive 解析
+                vod.setVodName(!TextUtils.isEmpty(note) ? note : key);
                 vod.setVodRemarks("[" + type + "]" + (TextUtils.isEmpty(pwd) ? "" : " 🗝️" + pwd));
                 vod.setVodPic(getIconForType(type));
                 list.add(vod);
@@ -154,7 +141,6 @@ public class PanSou extends Spider {
 
         SpiderDebug.log("PanSou detail: forwarding to CloudDrive: " + url);
 
-        // 创建 CloudDrive 实例并初始化（确保 Go proxy 启动）
         CloudDrive cloud = new CloudDrive();
         try {
             cloud.init(context, "");
@@ -167,7 +153,6 @@ public class PanSou extends Spider {
 
     @Override
     public String playerContent(String flag, String id, List<String> vipFlags) throws Exception {
-        // 转发到 CloudDrive
         CloudDrive cloud = new CloudDrive();
         try {
             cloud.init(context, "");

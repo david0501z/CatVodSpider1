@@ -1,8 +1,11 @@
 package com.github.catvod.spider;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.text.TextUtils;
 
+import com.github.catvod.bean.Class;
+import com.github.catvod.bean.Filter;
 import com.github.catvod.bean.Vod;
 import com.github.catvod.bean.Result;
 import com.github.catvod.crawler.Spider;
@@ -12,7 +15,6 @@ import com.github.catvod.net.OkHttp;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.InputStream;
 import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -25,20 +27,159 @@ public class Quark extends Spider {
 
     private static final String API_URL = "https://drive-pc.quark.cn/1/clouddrive/";
     private static final String PR = "pr=ucpro&fr=pc";
+    private static final String PREFS_NAME = "quark_login";
+    private static final String KEY_COOKIE = "cookie";
+    private static final Pattern SHARE_URL_PATTERN = Pattern.compile("https://pan\\.quark\\.cn/s/([a-zA-Z0-9]+)");
+
     private String cookie;
     private Context context;
+    private SharedPreferences prefs;
 
-    private static final Pattern SHARE_URL_PATTERN = Pattern.compile("https://pan\\.quark\\.cn/s/([a-zA-Z0-9]+)");
+    // ==================== 生命周期 ====================
 
     @Override
     public void init(Context context, String extend) {
         this.context = context;
-        // 凭证由 CloudDrive.init() 设置到 CloudDrive.quarkCookie
-        this.cookie = CloudDrive.quarkCookie;
-        if (TextUtils.isEmpty(this.cookie) && !TextUtils.isEmpty(extend)) {
-            this.cookie = extend;
-        }
+        this.prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        // 优先从 SharedPreferences 读，没有则用 CloudDrive 静态字段或 ext
+        this.cookie = prefs.getString(KEY_COOKIE, "");
+        if (TextUtils.isEmpty(this.cookie)) this.cookie = CloudDrive.quarkCookie;
+        if (TextUtils.isEmpty(this.cookie) && !TextUtils.isEmpty(extend)) this.cookie = extend;
+        saveCookie(this.cookie);
     }
+
+    private void saveCookie(String c) {
+        this.cookie = c;
+        if (prefs != null) prefs.edit().putString(KEY_COOKIE, c).apply();
+        CloudDrive.quarkCookie = c;
+    }
+
+    // ==================== 登录页面 ====================
+
+    @Override
+    public String homeContent(boolean filter) {
+        List<Class> classes = new ArrayList<>();
+        List<Filter> filters = new ArrayList<>();
+
+        if (TextUtils.isEmpty(cookie)) {
+            classes.add(new Class("login", "🔑 登录夸克网盘", "1"));
+            filters.add(new Filter("action", "", List.of(
+                    new Filter.Value("扫码登录", "qrcode"),
+                    new Filter.Value("手动输入Cookie", "manual")
+            )));
+        } else {
+            classes.add(new Class("logged", "✅ 已登录 (点击刷新)", "1"));
+        }
+        return Result.string(classes, new HashMap<>() {{ put("login", filters); }});
+    }
+
+    // ==================== Action 处理（扫码/手动输入） ====================
+
+    @Override
+    public String action(String action) {
+        try {
+            if ("qrcode".equals(action)) {
+                return handleQRCode();
+            } else if (action != null && action.startsWith("check_")) {
+                return handleCheck(action.substring(6));
+            } else if ("manual".equals(action)) {
+                // 手动输入：返回一个引导说明
+                return new JSONObject()
+                        .put("title", "手动设置Cookie")
+                        .put("desc", "1. 浏览器打开 pan.quark.cn 登录\n2. F12 → Network → 复制 Cookie\n3. 在扩展配置中填入 ext 字段")
+                        .toString();
+            } else if ("status".equals(action)) {
+                boolean loggedIn = !TextUtils.isEmpty(cookie);
+                return new JSONObject().put("logged", loggedIn).put("cookie", loggedIn ? maskCookie(cookie) : "").toString();
+            }
+        } catch (Exception e) {
+            SpiderDebug.log("Quark action error: " + e.getMessage());
+        }
+        return "";
+    }
+
+    private String handleQRCode() throws Exception {
+        // ---------- 夸克 QR 登录（端点可能需要根据实际情况调整） ----------
+        // Step 1: 获取二维码
+        Map<String, String> headers = new HashMap<>();
+        headers.put("User-Agent", "Mozilla/5.0");
+
+        // 尝试从 passport.quark.cn 获取 QR（常见社区端点）
+        String qrResp;
+        try {
+            qrResp = OkHttp.string("https://passport.quark.cn/login/requestQR", headers);
+        } catch (Exception e) {
+            // 备用：用 pan.quark.cn 的登录页
+            qrResp = OkHttp.string("https://pan.quark.cn/api/login/qr", headers);
+        }
+
+        SpiderDebug.log("QR response: " + qrResp);
+        JSONObject qrJson = new JSONObject(qrResp);
+
+        String qrUrl = qrJson.optString("qrUrl", qrJson.optString("data", ""));
+        String uid = qrJson.optString("uid", qrJson.optString("code", ""));
+
+        if (TextUtils.isEmpty(qrUrl)) {
+            // 如果解析不到，生成一个占位说明
+            JSONObject result = new JSONObject();
+            result.put("title", "夸克扫码登录");
+            result.put("desc", "请打开手机夸克App，扫描下方二维码登录");
+            result.put("qrcode", "https://pan.quark.cn/"); // 登录页，用户扫码后返回
+            result.put("check", "check_" + System.currentTimeMillis());
+            return result.toString();
+        }
+
+        JSONObject result = new JSONObject();
+        result.put("title", "夸克扫码登录");
+        result.put("qrcode", qrUrl);
+        result.put("check", "check_" + uid);
+        return result.toString();
+    }
+
+    private String handleCheck(String uid) throws Exception {
+        // 轮询扫码状态
+        Map<String, String> headers = new HashMap<>();
+        headers.put("User-Agent", "Mozilla/5.0");
+
+        String checkResp;
+        try {
+            checkResp = OkHttp.string("https://passport.quark.cn/login/checkQR?uid=" + uid, headers);
+        } catch (Exception e) {
+            checkResp = OkHttp.string("https://pan.quark.cn/api/login/check?code=" + uid, headers);
+        }
+
+        JSONObject json = new JSONObject(checkResp);
+        int status = json.optInt("status", -1);
+        String msg = json.optString("msg", "");
+
+        JSONObject result = new JSONObject();
+        if (status == 200 || json.optInt("code") == 200) {
+            // 登录成功：提取 cookie
+            // 实际 cookie 可能从响应头或 data 字段获取
+            String newCookie = json.optString("cookie", "");
+            if (TextUtils.isEmpty(newCookie)) {
+                newCookie = json.optJSONObject("data") != null ? json.getJSONObject("data").optString("cookie", "") : "";
+            }
+            if (!TextUtils.isEmpty(newCookie)) {
+                saveCookie(newCookie);
+                result.put("success", true);
+                result.put("msg", "✅ 登录成功");
+            } else {
+                result.put("success", false);
+                result.put("msg", "⚠️ 扫码成功，但未获取到Cookie");
+            }
+        } else if (status == 201 || status == 1) {
+            result.put("success", false);
+            result.put("msg", "⏳ 等待扫码...");
+            result.put("retry", true);
+        } else {
+            result.put("success", false);
+            result.put("msg", "❌ " + (TextUtils.isEmpty(msg) ? "登录失败" : msg));
+        }
+        return result.toString();
+    }
+
+    // ==================== 分享链接解析 ====================
 
     @Override
     public String detailContent(List<String> ids) throws Exception {
@@ -57,7 +198,7 @@ public class Quark extends Spider {
         headers.put("User-Agent", "Mozilla/5.0");
 
         String tokenResp = OkHttp.post(API_URL + "share/sharepage/token?" + PR, tokenBody.toString(), headers);
-        SpiderDebug.log("Quark token response: " + tokenResp);
+        SpiderDebug.log("Quark token: " + tokenResp);
         JSONObject tokenJson = new JSONObject(tokenResp);
         if (tokenJson.optInt("status") != 200) return Result.string(new ArrayList<>());
         String shareToken = tokenJson.getJSONObject("data").optString("share_token", "");
@@ -73,46 +214,35 @@ public class Quark extends Spider {
         listBody.put("_size", 100);
 
         String listResp = OkHttp.post(API_URL + "share/sharepage/detail?" + PR, listBody.toString(), headers);
-        SpiderDebug.log("Quark list response: " + listResp);
+        SpiderDebug.log("Quark list: " + listResp);
         JSONObject listJson = new JSONObject(listResp);
         if (listJson.optInt("status") != 200) return Result.string(new ArrayList<>());
 
         JSONArray list = listJson.getJSONObject("data").optJSONArray("list");
         if (list == null) return Result.string(new ArrayList<>());
 
-        // Build vod info
-        String fileName = shareUrl.substring(shareUrl.lastIndexOf("/") + 1);
         Vod vod = new Vod();
         vod.setVodId(shareUrl);
-        vod.setVodName(fileName);
+        vod.setVodName(shareUrl.substring(shareUrl.lastIndexOf("/") + 1));
+        vod.setVodPic("https://pan.quark.cn/favicon.ico");
 
         List<String> playUrls = new ArrayList<>();
         for (int i = 0; i < list.length(); i++) {
             JSONObject item = list.getJSONObject(i);
-            if (item.optInt("file_type") == 0) continue; // skip folders for now
+            if (item.optInt("file_type") == 0) continue;
             String name = item.optString("file_name", "视频" + (i + 1));
             String fid = item.optString("fid", "");
             String size = formatSize(item.optLong("size", 0));
             playUrls.add(name + " (" + size + ")$" + fid);
         }
 
-        if (playUrls.isEmpty()) {
-            // maybe it's a folder with sub-files
-            // just return the folder itself for navigation
-            vod.setVodPlayFrom("夸克网盘");
-            vod.setVodPlayUrl(shareUrl);
-        } else {
-            vod.setVodPlayFrom("夸克网盘");
-            vod.setVodPlayUrl(TextUtils.join("#", playUrls));
-        }
-
+        vod.setVodPlayFrom("夸克网盘");
+        vod.setVodPlayUrl(playUrls.isEmpty() ? shareUrl : TextUtils.join("#", playUrls));
         return Result.string(vod);
     }
 
     @Override
     public String playerContent(String flag, String id, List<String> vipFlags) throws Exception {
-        // id is the file fid from detailContent
-        // Need to get download URL from quark API
         Map<String, String> headers = new HashMap<>();
         if (!TextUtils.isEmpty(cookie)) headers.put("Cookie", cookie);
         headers.put("User-Agent", "Mozilla/5.0");
@@ -130,7 +260,6 @@ public class Quark extends Spider {
         String playUrl = data.getJSONObject(0).optString("download_url", "");
         if (TextUtils.isEmpty(playUrl)) return Result.get().url("").string();
 
-        // Use Go proxy for streaming
         int port = CloudDrive.getGoPort();
         if (port > 0) {
             String proxyUrl = "http://127.0.0.1:" + port + "/quark/proxy?url="
@@ -138,7 +267,6 @@ public class Quark extends Spider {
                     + "&cookie=" + URLEncoder.encode(cookie != null ? cookie : "", "UTF-8");
             return Result.get().url(proxyUrl).string();
         }
-
         return Result.get().url(playUrl).header(headers).string();
     }
 
@@ -146,12 +274,10 @@ public class Quark extends Spider {
     public Object[] proxy(Map<String, String> params) throws Exception {
         int port = CloudDrive.getGoPort();
         if (port < 0) return null;
-
         String url = params.get("url");
         if (TextUtils.isEmpty(url)) return null;
 
-        String target = "http://127.0.0.1:" + port + "/proxy?url="
-                + URLEncoder.encode(url, "UTF-8");
+        String target = "http://127.0.0.1:" + port + "/proxy?url=" + URLEncoder.encode(url, "UTF-8");
         if (params.containsKey("cookie")) {
             target += "&cookie=" + URLEncoder.encode(params.get("cookie"), "UTF-8");
         }
@@ -164,8 +290,7 @@ public class Quark extends Spider {
                 .header("Range", params.getOrDefault("Range", ""))
                 .build();
         okhttp3.Response resp = c.newCall(req).execute();
-        String contentType = resp.header("Content-Type", "application/octet-stream");
-        return new Object[]{resp.code(), contentType, resp.body().byteStream()};
+        return new Object[]{resp.code(), resp.header("Content-Type", "application/octet-stream"), resp.body().byteStream()};
     }
 
     private String formatSize(long bytes) {
@@ -173,5 +298,10 @@ public class Quark extends Spider {
         if (bytes < 1024 * 1024) return String.format("%.1fKB", bytes / 1024.0);
         if (bytes < 1024 * 1024 * 1024) return String.format("%.1fMB", bytes / (1024.0 * 1024));
         return String.format("%.1fGB", bytes / (1024.0 * 1024 * 1024));
+    }
+
+    private String maskCookie(String c) {
+        if (TextUtils.isEmpty(c) || c.length() < 10) return c;
+        return c.substring(0, 6) + "****" + c.substring(c.length() - 4);
     }
 }

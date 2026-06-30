@@ -15,6 +15,7 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -26,6 +27,7 @@ import okhttp3.Response;
 
 public class Aliyun extends Spider {
 
+    private Context context;
     private static final String UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
     private Map<String, String> getHeaders() {
@@ -36,6 +38,7 @@ public class Aliyun extends Spider {
 
     @Override
     public void init(Context context, String extend) {
+        this.context = context;
     }
 
     @Override
@@ -126,6 +129,36 @@ public class Aliyun extends Spider {
     @Override
     public Object[] proxy(Map<String, String> params) {
         if (params == null) return null;
+        String url = params.get("url");
+        if (TextUtils.isEmpty(url)) return null;
+        int port = CloudDrive.getGoPort();
+        if (port <= 0) {
+            return directProxy(params);
+        }
+        try {
+            StringBuilder proxyUrl = new StringBuilder("http://127.0.0.1:" + port + "/proxy?url=");
+            proxyUrl.append(URLEncoder.encode(url, "UTF-8"));
+            String range = params.get("range");
+            if (!TextUtils.isEmpty(range)) {
+                proxyUrl.append("&range=").append(URLEncoder.encode(range, "UTF-8"));
+            }
+            JSONObject headerJson = new JSONObject();
+            headerJson.put("User-Agent", UA);
+            headerJson.put("Referer", "https://www.aliyundrive.com/");
+            proxyUrl.append("&header=").append(URLEncoder.encode(headerJson.toString(), "UTF-8"));
+            Request request = new Request.Builder().url(proxyUrl.toString()).build();
+            OkHttpClient client = new OkHttpClient.Builder().build();
+            Response response = client.newCall(request).execute();
+            String contentType = response.header("Content-Type", "application/octet-stream");
+            InputStream is = response.body() != null ? response.body().byteStream() : new ByteArrayInputStream(new byte[0]);
+            return new Object[]{response.code(), contentType, is};
+        } catch (Exception e) {
+            SpiderDebug.log(e);
+            return null;
+        }
+    }
+
+    private Object[] directProxy(Map<String, String> params) {
         String url = params.get("url");
         if (TextUtils.isEmpty(url)) return null;
         try {

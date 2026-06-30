@@ -62,6 +62,9 @@ public class Market extends Spider {
             if (file.getName().endsWith(".zip")) {
                 FileUtil.unzip(file, Path.download());
                 file.delete();
+                // 清理无用的 .md5 文件
+                File md5 = new File(Path.download(), file.getName().replace(".zip", ".jar.md5"));
+                if (md5.exists()) md5.delete();
             }
             if (file.getName().endsWith(".apk")) FileUtil.openFile(file);
             checkCopy(action);

@@ -3,9 +3,8 @@ package com.github.catvod.spider;
 import android.content.Context;
 import android.text.TextUtils;
 
-import com.github.catvod.bean.Class;
-import com.github.catvod.bean.Result;
 import com.github.catvod.bean.Vod;
+import com.github.catvod.bean.Result;
 import com.github.catvod.crawler.Spider;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.net.OkHttp;
@@ -13,29 +12,19 @@ import com.github.catvod.net.OkHttp;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.ByteArrayInputStream;
-import java.io.InputStream;
 import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.Response;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class Pan123 extends Spider {
 
     private Context context;
-    private static final String UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-    private Map<String, String> getHeaders() {
-        Map<String, String> headers = new HashMap<>();
-        headers.put("User-Agent", UA);
-        headers.put("Referer", "https://www.123pan.com/");
-        return headers;
-    }
+    private static final Pattern SHARE_KEY_PATTERN = Pattern.compile("(?:123pan\\.com|123684\\.com)/s/([^/?\"']+)");
 
     @Override
     public void init(Context context, String extend) {
@@ -43,158 +32,139 @@ public class Pan123 extends Spider {
     }
 
     @Override
-    public String homeContent(boolean filter) {
-        List<Class> classes = new ArrayList<>();
-        classes.add(new Class("123", "123云盘"));
-        return Result.string(classes, null);
-    }
+    public String detailContent(List<String> ids) throws Exception {
+        String shareUrl = ids.get(0);
+        Matcher m = SHARE_KEY_PATTERN.matcher(shareUrl);
+        if (!m.find()) return Result.string(new ArrayList<>());
+        String shareKey = m.group(1);
+        if (shareKey.startsWith("s/")) shareKey = shareKey.substring(2);
 
-    @Override
-    public String categoryContent(String tid, String pg, boolean filter, HashMap<String, String> extend) {
-        return Result.string(new ArrayList<>());
-    }
+        // 123云盘不需要 cookie，直接请求
+        Map<String, String> headers = new HashMap<>();
+        headers.put("User-Agent", "Mozilla/5.0");
+        headers.put("Referer", "https://www.123pan.com/");
 
-    @Override
-    public String detailContent(List<String> ids) {
-        String id = ids.get(0);
-        try {
-            String shareKey = extractShareKey(id);
-            if (TextUtils.isEmpty(shareKey)) return Result.string(new Vod());
-            String json = OkHttp.string("https://www.123pan.com/api/share/info?shareKey=" + shareKey, getHeaders());
-            JSONObject obj = new JSONObject(json);
-            JSONObject data = obj.optJSONObject("data");
-            if (data == null) return Result.string(new Vod());
-            JSONArray fileList = data.optJSONArray("fileList");
-            if (fileList == null) fileList = data.optJSONArray("list");
-            if (fileList == null) return Result.string(new Vod());
-            Vod vod = new Vod();
-            vod.setVodId(id);
-            vod.setVodName(data.optString("title", "123云盘分享"));
-            vod.setVodPic("");
-            List<String> playUrls = new ArrayList<>();
-            for (int i = 0; i < fileList.length(); i++) {
-                JSONObject file = fileList.getJSONObject(i);
-                if (file.optInt("Type", 0) == 1 || file.optInt("type", 0) == 1) continue;
-                String fileName = file.optString("FileName", file.optString("name", ""));
-                String fileId = String.valueOf(file.optLong("FileId", file.optLong("fileId", 0)));
-                if (TextUtils.isEmpty(fileId) || "0".equals(fileId)) continue;
-                String ext = getExt(fileName);
-                if (!isVideoExt(ext)) continue;
-                playUrls.add(fileName + "$" + shareKey + "/" + fileId);
-            }
+        // 获取分享信息
+        String infoResp = OkHttp.string("https://www.123pan.com/api/share/info?shareKey=" + shareKey, headers);
+        SpiderDebug.log("123Pan info: " + infoResp);
+        JSONObject infoJson = new JSONObject(infoResp);
+        if (infoJson.optInt("code") != 0) return Result.string(new ArrayList<>());
+
+        JSONObject data = infoJson.optJSONObject("data");
+        if (data == null) return Result.string(new ArrayList<>());
+
+        long shareId = data.optLong("shareId", 0);
+        String sharePwd = data.optString("sharePwd", "");
+
+        // 获取文件列表
+        JSONObject listBody = new JSONObject();
+        listBody.put("shareKey", shareKey);
+        listBody.put("shareId", shareId);
+        listBody.put("sharePwd", sharePwd);
+        listBody.put("parentFileId", 0);
+        listBody.put("limit", 200);
+        listBody.put("Page", 1);
+        listBody.put("orderBy", "name");
+        listBody.put("orderDirection", "asc");
+
+        String listResp = OkHttp.post("https://www.123pan.com/api/share/list", listBody.toString(), headers);
+        SpiderDebug.log("123Pan list: " + listResp);
+        JSONObject listJson = new JSONObject(listResp);
+        if (listJson.optInt("code") != 0) return Result.string(new ArrayList<>());
+
+        JSONArray list = listJson.getJSONObject("data").optJSONArray("fileList");
+        if (list == null) return Result.string(new ArrayList<>());
+
+        Vod vod = new Vod();
+        vod.setVodId(shareUrl);
+        vod.setVodName(shareKey);
+
+        List<String> playUrls = new ArrayList<>();
+        for (int i = 0; i < list.length(); i++) {
+            JSONObject item = list.getJSONObject(i);
+            String name = item.optString("FileName", "视频" + (i + 1));
+            long fid = item.optLong("FileId", 0);
+            int type = item.optInt("Type", 0);
+            if (type == 1) continue; // folder
+            long size = item.optLong("FileSize", 0);
+            String sizeStr = formatSize(size);
+            playUrls.add(name + " (" + sizeStr + ")$" + fid);
+        }
+
+        if (playUrls.isEmpty()) {
+            vod.setVodPlayFrom("123云盘");
+            vod.setVodPlayUrl(shareUrl);
+        } else {
             vod.setVodPlayFrom("123云盘");
             vod.setVodPlayUrl(TextUtils.join("#", playUrls));
-            return Result.string(vod);
-        } catch (Exception e) {
-            SpiderDebug.log(e);
-            return Result.string(new Vod());
         }
+
+        return Result.string(vod);
     }
 
     @Override
-    public String playerContent(String flag, String id, List<String> vipFlags) {
-        try {
-            String[] parts = id.split("/", 2);
-            if (parts.length < 2) return Result.get().url("").string();
-            String shareKey = parts[0];
-            String fileId = parts[1];
-            JSONObject params = new JSONObject();
-            params.put("shareKey", shareKey);
-            params.put("fileId", Long.parseLong(fileId));
-            String json = OkHttp.post("https://www.123pan.com/api/share/download/info", params.toString(), getHeaders());
-            JSONObject obj = new JSONObject(json);
-            JSONObject data = obj.optJSONObject("data");
-            if (data == null) return Result.get().url("").string();
-            String downloadUrl = data.optString("DownloadUrl", data.optString("url", ""));
-            if (TextUtils.isEmpty(downloadUrl)) return Result.get().url("").string();
-            Map<String, String> respHeaders = new HashMap<>();
-            respHeaders.put("User-Agent", UA);
-            respHeaders.put("Referer", "https://www.123pan.com/");
-            return Result.get().url(downloadUrl).header(respHeaders).string();
-        } catch (Exception e) {
-            SpiderDebug.log(e);
-            return Result.get().url("").string();
+    public String playerContent(String flag, String id, List<String> vipFlags) throws Exception {
+        // Get download URL
+        Map<String, String> headers = new HashMap<>();
+        headers.put("User-Agent", "Mozilla/5.0");
+        headers.put("Referer", "https://www.123pan.com/");
+
+        JSONObject body = new JSONObject();
+        body.put("fileId", Long.parseLong(id));
+
+        String resp = OkHttp.post("https://www.123pan.com/api/share/download/info", body.toString(), headers);
+        JSONObject json = new JSONObject(resp);
+        if (json.optInt("code") != 0) return Result.get().url("").string();
+
+        JSONObject data = json.optJSONObject("data");
+        if (data == null) return Result.get().url("").string();
+
+        // 可能有多个 download URL
+        String playUrl = data.optString("DownloadUrl", "");
+        if (TextUtils.isEmpty(playUrl)) {
+            // key = direct link
+            playUrl = "https://" + data.optString("Key", "");
         }
-    }
+        if (TextUtils.isEmpty(playUrl)) return Result.get().url("").string();
 
-    @Override
-    public String searchContent(String key, boolean quick) {
-        return "";
-    }
-
-    @Override
-    public Object[] proxy(Map<String, String> params) {
-        if (params == null) return null;
-        String url = params.get("url");
-        if (TextUtils.isEmpty(url)) return null;
+        // Use Go proxy
         int port = CloudDrive.getGoPort();
-        if (port <= 0) {
-            return directProxy(params);
+        if (port > 0) {
+            String proxyUrl = "http://127.0.0.1:" + port + "/proxy?url="
+                    + URLEncoder.encode(playUrl, "UTF-8");
+            return Result.get().url(proxyUrl).string();
         }
-        try {
-            StringBuilder proxyUrl = new StringBuilder("http://127.0.0.1:" + port + "/proxy?url=");
-            proxyUrl.append(URLEncoder.encode(url, "UTF-8"));
-            String range = params.get("range");
-            if (!TextUtils.isEmpty(range)) {
-                proxyUrl.append("&range=").append(URLEncoder.encode(range, "UTF-8"));
-            }
-            JSONObject headerJson = new JSONObject();
-            headerJson.put("User-Agent", UA);
-            headerJson.put("Referer", "https://www.123pan.com/");
-            proxyUrl.append("&header=").append(URLEncoder.encode(headerJson.toString(), "UTF-8"));
-            Request request = new Request.Builder().url(proxyUrl.toString()).build();
-            OkHttpClient client = new OkHttpClient.Builder().build();
-            Response response = client.newCall(request).execute();
-            String contentType = response.header("Content-Type", "application/octet-stream");
-            InputStream is = response.body() != null ? response.body().byteStream() : new ByteArrayInputStream(new byte[0]);
-            return new Object[]{response.code(), contentType, is};
-        } catch (Exception e) {
-            SpiderDebug.log(e);
-            return null;
-        }
+
+        return Result.get().url(playUrl).string();
     }
 
-    private Object[] directProxy(Map<String, String> params) {
+    @Override
+    public Object[] proxy(Map<String, String> params) throws Exception {
+        int port = CloudDrive.getGoPort();
+        if (port < 0) return null;
+
         String url = params.get("url");
         if (TextUtils.isEmpty(url)) return null;
-        try {
-            OkHttpClient client = new OkHttpClient.Builder().build();
-            Request.Builder builder = new Request.Builder().url(url);
-            builder.addHeader("User-Agent", UA);
-            builder.addHeader("Referer", "https://www.123pan.com/");
-            String range = params.get("range");
-            if (!TextUtils.isEmpty(range)) builder.addHeader("Range", range);
-            Response response = client.newCall(builder.build()).execute();
-            String contentType = response.header("Content-Type", "application/octet-stream");
-            InputStream is = response.body() != null ? response.body().byteStream() : new ByteArrayInputStream(new byte[0]);
-            return new Object[]{response.code(), contentType, is};
-        } catch (Exception e) {
-            SpiderDebug.log(e);
-            return null;
-        }
+
+        String target = "http://127.0.0.1:" + port + "/proxy?url="
+                + URLEncoder.encode(url, "UTF-8");
+
+        okhttp3.OkHttpClient c = new okhttp3.OkHttpClient.Builder()
+                .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .build();
+        okhttp3.Request req = new okhttp3.Request.Builder().url(target)
+                .header("Range", params.getOrDefault("Range", ""))
+                .build();
+        okhttp3.Response resp = c.newCall(req).execute();
+        String contentType = resp.header("Content-Type", "application/octet-stream");
+        return new Object[]{resp.code(), contentType, resp.body().byteStream()};
     }
 
-    private String extractShareKey(String url) {
-        if (url.startsWith("http")) {
-            String[] parts = url.split("/s/");
-            if (parts.length >= 2) {
-                String key = parts[1];
-                if (key.contains("?")) key = key.substring(0, key.indexOf("?"));
-                if (key.contains("/")) key = key.substring(0, key.indexOf("/"));
-                return key;
-            }
-        }
-        return url;
-    }
-
-    private String getExt(String name) {
-        int idx = name.lastIndexOf(".");
-        return idx > 0 ? name.substring(idx + 1).toLowerCase() : "";
-    }
-
-    private boolean isVideoExt(String ext) {
-        return "mp4".equals(ext) || "mkv".equals(ext) || "avi".equals(ext) ||
-               "mov".equals(ext) || "wmv".equals(ext) || "flv".equals(ext) ||
-               "ts".equals(ext) || "webm".equals(ext) || "rmvb".equals(ext) || "m4v".equals(ext);
+    private String formatSize(long bytes) {
+        if (bytes < 1024) return bytes + "B";
+        if (bytes < 1024 * 1024) return String.format("%.1fKB", bytes / 1024.0);
+        if (bytes < 1024 * 1024 * 1024) return String.format("%.1fMB", bytes / (1024.0 * 1024));
+        return String.format("%.1fGB", bytes / (1024.0 * 1024 * 1024));
     }
 }

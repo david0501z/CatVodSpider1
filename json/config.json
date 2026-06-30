@@ -18,14 +18,9 @@
     }
   ],
   "sites": [
-    {"key": "pansou", "name": "🔍 盘搜", "type": 3, "api": "csp_PanSou", "searchable": 1, "changeable": 0, "ext": "http://david525:8888"},
     {"key": "local", "name": "Local", "type": 3, "api": "csp_Local", "searchable": 0, "changeable": 0},
     {"key": "market", "name": "Market", "type": 3, "api": "csp_Market", "searchable": 0, "changeable": 0, "ext": "./market.json"},
-    {"key": "push_agent", "name": "Push", "type": 3, "api": "csp_Push", "searchable": 0, "changeable": 0, "timeout": 60},
-    {"key": "cloud", "name": "☁️ 网盘聚合", "type": 3, "api": "csp_CloudDrive", "searchable": 0, "changeable": 0},
-    {"key": "quark", "name": "夸克网盘", "type": 3, "api": "csp_Quark", "searchable": 0, "changeable": 0},
-    {"key": "aliyun", "name": "阿里云盘", "type": 3, "api": "csp_Aliyun", "searchable": 0, "changeable": 0},
-    {"key": "pan123", "name": "123云盘", "type": 3, "api": "csp_Pan123", "searchable": 0, "changeable": 0}
+    {"key": "push_agent", "name": "Push", "type": 3, "api": "csp_Push", "searchable": 0, "changeable": 0, "timeout": 60}
   ],
   "doh": [
     {"name": "Google", "url": "https://dns.google/dns-query", "ips": ["8.8.4.4", "8.8.8.8"]},

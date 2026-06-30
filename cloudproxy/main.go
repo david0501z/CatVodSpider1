@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"flag"
 	"strconv"
 	"strings"
 )
@@ -15,6 +16,11 @@ import (
 var version = "v1.0.0"
 
 func main() {
+	portFlag := flag.String("port", "", "port to listen on")
+	flag.Parse()
+	if *portFlag != "" {
+		os.Setenv("PORT", *portFlag)
+	}
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "5758"

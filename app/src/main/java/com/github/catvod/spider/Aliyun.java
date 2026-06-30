@@ -30,7 +30,11 @@ public class Aliyun extends Spider {
     @Override
     public void init(Context context, String extend) {
         this.context = context;
-        this.token = extend != null ? extend : "";
+        // 凭证由 CloudDrive.init() 设置到 CloudDrive.aliyunToken
+        this.token = CloudDrive.aliyunToken;
+        if (TextUtils.isEmpty(this.token) && !TextUtils.isEmpty(extend)) {
+            this.token = extend;
+        }
     }
 
     @Override

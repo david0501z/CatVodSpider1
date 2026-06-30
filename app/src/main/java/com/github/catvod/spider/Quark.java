@@ -18,6 +18,7 @@ import org.json.JSONObject;
 import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -70,7 +71,7 @@ public class Quark extends Spider {
         } else {
             classes.add(new Class("logged", "✅ 已登录 (点击刷新)", "1"));
         }
-        return Result.string(classes, new HashMap<>() {{ put("login", filters); }});
+        return Result.string(classes, new LinkedHashMap<>() {{ put("login", filters); }});
     }
 
     // ==================== Action 处理（扫码/手动输入） ====================
@@ -196,7 +197,7 @@ public class Quark extends Spider {
         if (!TextUtils.isEmpty(cookie)) headers.put("Cookie", cookie);
         headers.put("User-Agent", "Mozilla/5.0");
 
-        String tokenResp = OkHttp.post(API_URL + "share/sharepage/token?" + PR, tokenBody.toString(), headers);
+        String tokenResp = OkHttp.post(API_URL + "share/sharepage/token?" + PR, tokenBody.toString(), headers).getBody();
         SpiderDebug.log("Quark token: " + tokenResp);
         JSONObject tokenJson = new JSONObject(tokenResp);
         if (tokenJson.optInt("status") != 200) return Result.string(new ArrayList<>());
@@ -212,7 +213,7 @@ public class Quark extends Spider {
         listBody.put("_page", 1);
         listBody.put("_size", 100);
 
-        String listResp = OkHttp.post(API_URL + "share/sharepage/detail?" + PR, listBody.toString(), headers);
+        String listResp = OkHttp.post(API_URL + "share/sharepage/detail?" + PR, listBody.toString(), headers).getBody();
         SpiderDebug.log("Quark list: " + listResp);
         JSONObject listJson = new JSONObject(listResp);
         if (listJson.optInt("status") != 200) return Result.string(new ArrayList<>());
@@ -249,7 +250,7 @@ public class Quark extends Spider {
         JSONObject body = new JSONObject();
         body.put("fids", new JSONArray().put(id));
 
-        String resp = OkHttp.post(API_URL + "share/sharepage/download?" + PR, body.toString(), headers);
+        String resp = OkHttp.post(API_URL + "share/sharepage/download?" + PR, body.toString(), headers).getBody();
         JSONObject json = new JSONObject(resp);
         if (json.optInt("status") != 200) return Result.get().url("").string();
 

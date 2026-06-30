@@ -33,7 +33,11 @@ public class Quark extends Spider {
     @Override
     public void init(Context context, String extend) {
         this.context = context;
-        this.cookie = extend != null ? extend : "";
+        // 凭证由 CloudDrive.init() 设置到 CloudDrive.quarkCookie
+        this.cookie = CloudDrive.quarkCookie;
+        if (TextUtils.isEmpty(this.cookie) && !TextUtils.isEmpty(extend)) {
+            this.cookie = extend;
+        }
     }
 
     @Override

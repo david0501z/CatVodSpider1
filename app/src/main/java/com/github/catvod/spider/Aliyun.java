@@ -53,7 +53,7 @@ public class Aliyun extends Spider {
         headers.put("User-Agent", "Mozilla/5.0");
         if (!TextUtils.isEmpty(token)) headers.put("Authorization", "Bearer " + token);
 
-        String tokenResp = OkHttp.post("https://api.aliyundrive.com/v2/share_link/get_share_token", tokenBody.toString(), headers);
+        String tokenResp = OkHttp.post("https://api.aliyundrive.com/v2/share_link/get_share_token", tokenBody.toString(), headers).getBody();
         SpiderDebug.log("Aliyun share token: " + tokenResp);
         JSONObject tokenJson = new JSONObject(tokenResp);
         String shareToken = tokenJson.optString("share_token", "");
@@ -67,7 +67,7 @@ public class Aliyun extends Spider {
         listBody.put("parent_file_id", "root");
         listBody.put("limit", 200);
 
-        String listResp = OkHttp.post("https://api.aliyundrive.com/v2/share_link/list_files", listBody.toString(), listHeaders);
+        String listResp = OkHttp.post("https://api.aliyundrive.com/v2/share_link/list_files", listBody.toString(), listHeaders).getBody();
         SpiderDebug.log("Aliyun list: " + listResp);
         JSONObject listJson = new JSONObject(listResp);
         JSONArray items = listJson.optJSONArray("items");
@@ -113,7 +113,7 @@ public class Aliyun extends Spider {
         body.put("file_id", id);
 
         // Get download URL
-        String resp = OkHttp.post("https://api.aliyundrive.com/v2/file/get_share_link_download_url", body.toString(), headers);
+        String resp = OkHttp.post("https://api.aliyundrive.com/v2/file/get_share_link_download_url", body.toString(), headers).getBody();
         JSONObject json = new JSONObject(resp);
         String playUrl = json.optString("download_url", "");
         if (TextUtils.isEmpty(playUrl)) return Result.get().url("").string();

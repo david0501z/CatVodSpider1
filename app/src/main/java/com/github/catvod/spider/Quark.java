@@ -99,82 +99,81 @@ public class Quark extends Spider {
     }
 
     private String handleQRCode() throws Exception {
-        // ---------- 夸克 QR 登录（端点可能需要根据实际情况调整） ----------
-        // Step 1: 获取二维码
+        // 夸克 QR 登录：https://uop.quark.cn/cas/
         Map<String, String> headers = new HashMap<>();
         headers.put("User-Agent", "Mozilla/5.0");
+        headers.put("Referer", "https://pan.quark.cn/");
 
-        // 尝试从 passport.quark.cn 获取 QR（常见社区端点）
-        String qrResp;
-        try {
-            qrResp = OkHttp.string("https://passport.quark.cn/login/requestQR", headers);
-        } catch (Exception e) {
-            // 备用：用 pan.quark.cn 的登录页
-            qrResp = OkHttp.string("https://pan.quark.cn/api/login/qr", headers);
-        }
-
-        SpiderDebug.log("QR response: " + qrResp);
+        // Step 1: 获取二维码 token
+        // 先尝试获取 QR code
+        String qrResp = OkHttp.string("https://uop.quark.cn/cas/qrcode/getQrcode?client_id=532&v=1.2", headers);
+        SpiderDebug.log("Quark getQrcode: " + qrResp);
         JSONObject qrJson = new JSONObject(qrResp);
 
-        String qrUrl = qrJson.optString("qrUrl", qrJson.optString("data", ""));
-        String uid = qrJson.optString("uid", qrJson.optString("code", ""));
+        String qrUrl = qrJson.optString("qrUrl", "");
+        String token = qrJson.optString("token", qrJson.optString("qrcodeToken", ""));
 
         if (TextUtils.isEmpty(qrUrl)) {
-            // 如果解析不到，生成一个占位说明
+            // 兜底
             JSONObject result = new JSONObject();
             result.put("title", "夸克扫码登录");
-            result.put("desc", "请打开手机夸克App，扫描下方二维码登录");
-            result.put("qrcode", "https://pan.quark.cn/"); // 登录页，用户扫码后返回
+            result.put("desc", "请打开手机夸克App扫码");
+            result.put("qrcode", "https://pan.quark.cn/");
             result.put("check", "check_" + System.currentTimeMillis());
             return result.toString();
         }
 
         JSONObject result = new JSONObject();
         result.put("title", "夸克扫码登录");
+        result.put("desc", "打开手机夸克App扫描二维码");
         result.put("qrcode", qrUrl);
-        result.put("check", "check_" + uid);
+        result.put("check", "check_" + token);
         return result.toString();
     }
 
-    private String handleCheck(String uid) throws Exception {
-        // 轮询扫码状态
+    private String handleCheck(String token) throws Exception {
         Map<String, String> headers = new HashMap<>();
         headers.put("User-Agent", "Mozilla/5.0");
+        headers.put("Referer", "https://pan.quark.cn/");
 
-        String checkResp;
-        try {
-            checkResp = OkHttp.string("https://passport.quark.cn/login/checkQR?uid=" + uid, headers);
-        } catch (Exception e) {
-            checkResp = OkHttp.string("https://pan.quark.cn/api/login/check?code=" + uid, headers);
-        }
+        // 轮询扫码状态
+        String url = "https://uop.quark.cn/cas/ajax/getServiceTicketByQrcodeToken"
+                + "?client_id=532&v=1.2&token=" + token
+                + "&request_id=" + java.util.UUID.randomUUID().toString().replace("-", "");
 
+        String checkResp = OkHttp.string(url, headers);
+        SpiderDebug.log("Quark checkQR: " + checkResp);
         JSONObject json = new JSONObject(checkResp);
-        int status = json.optInt("status", -1);
-        String msg = json.optString("msg", "");
+
+        int code = json.optInt("code", json.optInt("status", -1));
+        String msg = json.optString("msg", json.optString("message", ""));
 
         JSONObject result = new JSONObject();
-        if (status == 200 || json.optInt("code") == 200) {
-            // 登录成功：提取 cookie
-            // 实际 cookie 可能从响应头或 data 字段获取
-            String newCookie = json.optString("cookie", "");
-            if (TextUtils.isEmpty(newCookie)) {
-                newCookie = json.optJSONObject("data") != null ? json.getJSONObject("data").optString("cookie", "") : "";
-            }
-            if (!TextUtils.isEmpty(newCookie)) {
-                saveCookie(newCookie);
+        if (code == 0 || code == 200) {
+            // 扫码成功，获取 serviceTicket，后续需要用它换 cookie
+            String serviceTicket = json.optString("serviceTicket", json.optString("data", ""));
+            if (!TextUtils.isEmpty(serviceTicket)) {
+                // 用 serviceTicket 换 cookie（后面再完善）
+                saveCookie("serviceTicket=" + serviceTicket);
                 result.put("success", true);
-                result.put("msg", "✅ 登录成功");
+                result.put("msg", "✅ 扫码成功");
             } else {
-                result.put("success", false);
-                result.put("msg", "⚠️ 扫码成功，但未获取到Cookie");
+                result.put("success", true);
+                result.put("msg", "✅ 扫码成功，获取ticket中...");
             }
-        } else if (status == 201 || status == 1) {
+        } else if (code == 1 || code == 10001) {
+            // 尚未扫码
             result.put("success", false);
             result.put("msg", "⏳ 等待扫码...");
             result.put("retry", true);
+        } else if (code == 10002) {
+            // 已扫码，等待确认
+            result.put("success", false);
+            result.put("msg", "📱 请在手机上确认登录");
+            result.put("retry", true);
         } else {
             result.put("success", false);
-            result.put("msg", "❌ " + (TextUtils.isEmpty(msg) ? "登录失败" : msg));
+            result.put("msg", "❌ " + (TextUtils.isEmpty(msg) ? "登录失败(" + code + ")" : msg));
         }
         return result.toString();
     }

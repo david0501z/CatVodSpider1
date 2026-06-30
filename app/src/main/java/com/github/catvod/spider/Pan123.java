@@ -67,7 +67,7 @@ public class Pan123 extends Spider {
         listBody.put("orderBy", "name");
         listBody.put("orderDirection", "asc");
 
-        String listResp = OkHttp.post("https://www.123pan.com/api/share/list", listBody.toString(), headers);
+        String listResp = OkHttp.post("https://www.123pan.com/api/share/list", listBody.toString(), headers).getBody();
         SpiderDebug.log("123Pan list: " + listResp);
         JSONObject listJson = new JSONObject(listResp);
         if (listJson.optInt("code") != 0) return Result.string(new ArrayList<>());
@@ -112,7 +112,7 @@ public class Pan123 extends Spider {
         JSONObject body = new JSONObject();
         body.put("fileId", Long.parseLong(id));
 
-        String resp = OkHttp.post("https://www.123pan.com/api/share/download/info", body.toString(), headers);
+        String resp = OkHttp.post("https://www.123pan.com/api/share/download/info", body.toString(), headers).getBody();
         JSONObject json = new JSONObject(resp);
         if (json.optInt("code") != 0) return Result.get().url("").string();
 

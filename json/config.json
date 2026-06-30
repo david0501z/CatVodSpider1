@@ -56,39 +56,6 @@
       "searchable": 0,
       "changeable": 0,
       "timeout": 60
-    },
-    {
-      "key": "cloud",
-      "name": "☁️ 网盘聚合",
-      "type": 3,
-      "api": "csp_CloudDrive",
-      "searchable": 0,
-      "changeable": 0,
-      "ext": "{\"quark_cookie\":\"\",\"aliyun_token\":\"\"}"
-    },
-    {
-      "key": "quark",
-      "name": "夸克网盘",
-      "type": 3,
-      "api": "csp_Quark",
-      "searchable": 0,
-      "changeable": 0
-    },
-    {
-      "key": "aliyun",
-      "name": "阿里云盘",
-      "type": 3,
-      "api": "csp_Aliyun",
-      "searchable": 0,
-      "changeable": 0
-    },
-    {
-      "key": "pan123",
-      "name": "123云盘",
-      "type": 3,
-      "api": "csp_Pan123",
-      "searchable": 0,
-      "changeable": 0
     }
   ],
   "doh": [

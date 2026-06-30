@@ -1,5 +1,5 @@
 {
-  "spider": "../jar/custom_spider.jar",
+  "spider": "http://d.david525.cloudns.ch/davstore/jar/update.jar",
   "lives": [
     {
       "name": "XtreamCode",

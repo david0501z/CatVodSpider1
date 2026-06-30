@@ -113,7 +113,6 @@ public class Path {
         try {
             int read;
             byte[] buffer = new byte[16384];
-            if (out.exists()) out.delete();
             FileOutputStream fos = new FileOutputStream(create(out));
             while ((read = in.read(buffer)) != -1) fos.write(buffer, 0, read);
             fos.close();
